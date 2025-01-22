@@ -170,169 +170,7 @@ class LTRANSdata():
     self.f=(LTRANSnetcdf(outputfilename),)
     self.my_files_read+=1
 
-  def apply_Oil_Properties_on_meshpatch(self,OilProperties_Fnames,mesh,stranded_oil_was_removed_from_surfoil=True,stranded_oil_was_removed_from_dispoil=False,weighting_coeffs=[None],time=[]):
-    self.oil_props_computed_on_patches=True
-    OIL=OILTRANS(OilProperties_Fnames,stranded_oil_was_removed_from_surfoil,files_range=self.my_file_range,rank=self.__parallel.rank)
-    self.mesh=mesh
-    self.OILTRANS=OIL
-    for nf in range(len(self.my_file_range)):
-      self.f[nf].remove_timesteps_preceeding(OIL.t0)
-      self.f[nf].time -= OIL.time0
-      if(np.max(np.abs(self.f[nf].time[1:]-OIL.Time[nf,1:]))>1e-5):print('WARNING time shapes=',np.shape(self.f[nf].time[:]),np.shape(OIL.Time[nf,:]),'max time diff=',np.max(np.abs(self.f[nf].time[1:]-OIL.Time[nf,1:])),np.hstack((self.f[nf].time[:2],['...'],self.f[nf].time[-2:])),np.hstack((OIL.Time[nf,:2],['...'],OIL.Time[nf,-2:])))
-    if(len(time)>0):
-      self.tmax=len(time)
-    else:
-      self.tmax=len(self.f[0].time[:])
-    VolOilSurfOpnSea_byApatch      =np.zeros((self.tmax,self.mesh.nARRpatch),dtype=np.float64)
-    VolOilDispOpnSea_byApatch      =np.zeros((self.tmax,self.mesh.nARRpatch),dtype=np.float64)
-    VolOilSurfStrand_byApatch=np.zeros((self.tmax,self.mesh.nARRpatch),dtype=np.float64)
-    VolOilDispStrand_byApatch=np.zeros((self.tmax,self.mesh.nARRpatch),dtype=np.float64)
-    kg_OilSurfOpnSea_byApatch      =np.zeros((self.tmax,self.mesh.nARRpatch),dtype=np.float64)
-    kg_OilDispOpnSea_byApatch      =np.zeros((self.tmax,self.mesh.nARRpatch),dtype=np.float64)
-    kg_OilSurfStrand_byApatch=np.zeros((self.tmax,self.mesh.nARRpatch),dtype=np.float64)
-    kg_OilDispStrand_byApatch=np.zeros((self.tmax,self.mesh.nARRpatch),dtype=np.float64)
-    for nf in range(len(self.my_file_range)):
-      print('rank',self.__parallel.rank,' applies coeff',weighting_coeffs[min(nf,len(weighting_coeffs)-1)],' and Oil Props ',OIL.fnames[nf],' to particles in',self.fnames[nf])
-      if(len(time)>0):
-        self.time=time
-      else:
-        self.time=self.f[nf].time[:]
-      VolOilSurf       = np.zeros((self.tmax),dtype=float)
-      VolOilSurfOpnSea = np.zeros((self.tmax),dtype=float)
-      VolOilSurfStrand = np.zeros((self.tmax),dtype=float)
-      VolOilDisp       = np.zeros((self.tmax),dtype=float)
-      VolOilDispOpnSea = np.zeros((self.tmax),dtype=float)
-      VolOilDispStrand = np.zeros((self.tmax),dtype=float)
-      VolOilEvap       = np.zeros((self.tmax),dtype=float)
-      VolOilTOT        = np.zeros((self.tmax),dtype=float)
-      RhoOil           = np.zeros((self.tmax),dtype=float)
-      tmaxoil=len(OIL.Time[nf,:])
-      t_oldoil=0
-      tdata=()
-      for t in range(0,self.tmax):
-        found=False
-        for toil in range(t_oldoil,tmaxoil-1):
-          ta=OIL.Time[nf,toil]
-          tb=OIL.Time[nf,toil+1]
-          if(tb<self.time[t]):continue
-          if(ta-1.<=self.time[t] and tb-1.>self.time[t]):
-              Factor1=float(tb-self.time[t])/float(tb-ta)
-              Factor2=float(self.time[t]-ta)/float(tb-ta)
-              if(stranded_oil_was_removed_from_surfoil and stranded_oil_was_removed_from_dispoil):
-                VolOilSurfOpnSea[t:]=(OIL.VolSurfOpnSea[nf,toil  ]*Factor1+OIL.VolSurfOpnSea[nf,toil+1]*Factor2)
-                VolOilSurfStrand[t:]=(OIL.VolSurfStrand[nf,toil  ]*Factor1+OIL.VolSurfStrand[nf,toil+1]*Factor2)
-              elif(stranded_oil_was_removed_from_surfoil and not stranded_oil_was_removed_from_dispoil):
-                VolOilSurfOpnSea[t:]=(OIL.VolSurf[nf,toil  ]*Factor1+OIL.VolSurf[nf,toil+1]*Factor2)
-                VolOilSurfStrand[t:]=(OIL.VolStrand[nf,toil  ]*Factor1+OIL.VolStrand[nf,toil+1]*Factor2)
-              else:
-                 VolOilSurf[t:]=(OIL.VolSurf[nf,toil  ]*Factor1+OIL.VolSurf[nf,toil+1]*Factor2)
-              if(stranded_oil_was_removed_from_dispoil):
-                 VolOilDispStrand = (OIL.VolDispStrand[nf,toil  ] *Factor1+OIL.VolDispStrand[nf,toil+1]*Factor2)
-                 VolOilDispOpnSea = (OIL.VolDispOpnSea[nf,toil  ] *Factor1+OIL.VolDispOpnSea[nf,toil+1]*Factor2)
-              else:
-                 VolOilDisp[t:]=(OIL.VolDisp[nf,toil  ]*Factor1+OIL.VolDisp[nf,toil+1]*Factor2)
-              VolOilEvap[t:]=(OIL.VolEvap[nf,toil  ]*Factor1+OIL.VolEvap[nf,toil+1]*Factor2)
-              VolOilTOT[t:]=OIL.VolOilTot[nf,toil  ]*Factor1+OIL.VolOilTot[nf,toil+1]*Factor2
-              RhoOil[t:]=OIL.Rho_Oil[nf,toil  ]*Factor1+OIL.Rho_Oil[nf,toil+1]*Factor2
-              found=True
-          if(found):
-            tdata+=(toil,)
-            break
-        t_oldoil=toil
-      tdata=np.array(tdata)
-      #-------------------
-      numaliveparts=np.zeros(self.tmax,dtype=float)
-      numbeachparts=np.zeros(self.tmax,dtype=float)
-      for t in range(0,self.tmax):
-        numaliveparts[t]=float(len(np.ma.masked_where(self.f[nf].color[tdata[t],:]!=1 ,np.arange(0,self.nmax)).compressed()))
-        numbeachparts[t]=float(len(np.ma.masked_where(np.abs(self.f[nf].color[tdata[t],:])!=2 ,np.arange(0,self.nmax)).compressed()))
-      #-------------------
-      if(not stranded_oil_was_removed_from_surfoil):
-        VolOilSurfStrand = np.zeros(np.shape(VolOilSurf),dtype=float)
-        VolOilSurfOpnSea = np.copy(VolOilSurf)
-        for t in range(0,self.tmax):
-          if(t==0):
-             beaching_parts=numbeachparts[t]
-          else:
-             beaching_parts=numbeachparts[t]-numbeachparts[t-1]
-          if(beaching_parts>0): 
-            VolOilSurfStrand[t:] += VolOilSurfOpnSea[t ]*float(beaching_parts)/float(beaching_parts+numaliveparts[t])
-            VolOilSurfOpnSea[t:] -= VolOilSurfOpnSea[t:]*float(beaching_parts)/float(beaching_parts+numaliveparts[t])
-            VolOilSurf[t:] -= VolOilSurf[t:]*float(beaching_parts)/float(beaching_parts+numaliveparts[t])
-      if(not stranded_oil_was_removed_from_dispoil):
-        VolOilDispStrand = np.zeros(np.shape(VolOilDisp),dtype=float)
-        VolOilDispOpnSea = np.copy(VolOilDisp)
-        for t in range(0,self.tmax):
-          if(t==0):
-             beaching_parts=numbeachparts[t]
-          else:
-             beaching_parts=numbeachparts[t]-numbeachparts[t-1]
-          if(beaching_parts>0): 
-            VolOilDispStrand[t:] += VolOilDispOpnSea[t ]*float(beaching_parts)/float(beaching_parts+numaliveparts[t])
-            VolOilDispOpnSea[t:] -= VolOilDispOpnSea[t ]*float(beaching_parts)/float(beaching_parts+numaliveparts[t])
-           #VolOilDispOpnSea[t:] -= VolOilDispOpnSea[t:]*float(beaching_parts)/float(beaching_parts+numaliveparts[t])
-      if(weighting_coeffs[0]!=None):
-        VolOilSurf       *= weighting_coeffs[nf]
-        VolOilSurfStrand *= weighting_coeffs[nf]
-        VolOilSurfOpnSea *= weighting_coeffs[nf]
-        VolOilDisp       *= weighting_coeffs[nf]
-        VolOilDispStrand *= weighting_coeffs[nf]
-        VolOilDispOpnSea *= weighting_coeffs[nf]
-        VolOilEvap       *= weighting_coeffs[nf]
-        VolOilTOT        *= weighting_coeffs[nf]
-      #-------------------
-      for n in range(0,self.nmax):
-        tlist=np.ma.masked_where(np.abs(self.f[nf].color[tdata,n])!=2 ,np.arange(0,self.tmax)).compressed()
-        if(len(tlist)>0):
-          Apatches=self.mesh.coords_to_Apatch(self.f[nf].lon[tdata[tlist],n],self.f[nf].lat[tdata[tlist],n])
-          for count,(t,patch) in enumerate(zip(tlist,Apatches)):
-           if(count>0 and patch<0): 
-               Apatches[count]=Apatches[count-1]
-               patch=Apatches[count]
-           if(patch>=0):
-            if(numbeachparts[t]>0):
-              VolOilSurfStrand_byApatch[t,patch]=VolOilSurfStrand_byApatch[t,patch]+1./numbeachparts[t]*VolOilSurfStrand[t]
-              VolOilDispStrand_byApatch[t,patch]=VolOilDispStrand_byApatch[t,patch]+1./numbeachparts[t]*VolOilDispStrand[t]
-              kg_OilSurfStrand_byApatch[t,patch]=kg_OilSurfStrand_byApatch[t,patch]+1./numbeachparts[t]*(VolOilSurfStrand[t]*RhoOil[t])   # [kg] = [m3] * [kg/m3]
-              kg_OilDispStrand_byApatch[t,patch]=kg_OilDispStrand_byApatch[t,patch]+1./numbeachparts[t]*(VolOilDispStrand[t]*RhoOil[t])   # [kg] = [m3] * [kg/m3]
-      #-------------------
-      for n in range(0,self.nmax):
-        tlist=np.ma.masked_where(np.abs(self.f[nf].color[tdata,n])!=1 ,np.arange(0,self.tmax)).compressed()
-        if(len(tlist)>0):
-          Apatches=self.mesh.coords_to_Apatch(self.f[nf].lon[tdata[tlist],n],self.f[nf].lat[tdata[tlist],n])
-          for count,(t,patch) in enumerate(zip(tlist,Apatches)):
-           if(patch>=0):
-              if(numaliveparts[t]>0):
-                  VolOilSurfOpnSea_byApatch[t,patch]=VolOilSurfOpnSea_byApatch[t,patch]+1./numaliveparts[t]*VolOilSurfOpnSea[t] 
-                  VolOilDispOpnSea_byApatch[t,patch]=VolOilDispOpnSea_byApatch[t,patch]+1./numaliveparts[t]*VolOilDispOpnSea[t] 
-                  kg_OilSurfOpnSea_byApatch[t,patch]=kg_OilSurfOpnSea_byApatch[t,patch]+1./numaliveparts[t]*(VolOilSurfOpnSea[t]*RhoOil[t])   # [kg] = [m3] * [kg/m3]
-                  kg_OilDispOpnSea_byApatch[t,patch]=kg_OilDispOpnSea_byApatch[t,patch]+1./numaliveparts[t]*(VolOilDispOpnSea[t]*RhoOil[t])   # [kg] = [m3] * [kg/m3]
-      #-------------------
-    if(self.__parallel.nranks>1): 
-      if(self.__parallel.rank<1):print('REDUCE MATRIX')
-      VolOilSurfOpnSea_byApatch=self.__parallel.allreducesum_flt64(VolOilSurfOpnSea_byApatch)
-      VolOilDispOpnSea_byApatch=self.__parallel.allreducesum_flt64(VolOilDispOpnSea_byApatch)
-      VolOilSurfStrand_byApatch=self.__parallel.allreducesum_flt64(VolOilSurfStrand_byApatch)
-      VolOilDispStrand_byApatch=self.__parallel.allreducesum_flt64(VolOilDispStrand_byApatch)
-      kg_OilSurfOpnSea_byApatch  =self.__parallel.allreducesum_flt64(kg_OilSurfOpnSea_byApatch)
-      kg_OilDispOpnSea_byApatch  =self.__parallel.allreducesum_flt64(kg_OilDispOpnSea_byApatch)
-      kg_OilSurfStrand_byApatch=self.__parallel.allreducesum_flt64(kg_OilSurfStrand_byApatch)
-      kg_OilDispStrand_byApatch=self.__parallel.allreducesum_flt64(kg_OilDispStrand_byApatch)
-      if(self.__parallel.rank<1):print('REDUCE MATRIX DONE')
-    
-    self.mesh.compute_Area_by_Apatch()
-    self.SurfOpnSea_mmThick = VolOilSurfOpnSea_byApatch / self.mesh.Apatch_Area_m2  *1000.  # m3/m2* 1000=mm
-    self.DispOpnSea_mmThick = VolOilDispOpnSea_byApatch / self.mesh.Apatch_Area_m2  *1000.  # m3/m2 *1000=mm
-    self.SurfStrand_mmThick = VolOilSurfStrand_byApatch / self.mesh.Apatch_Area_m2  *1000.  # m3/m2 *1000=mm
-    self.DispStrand_mmThick = VolOilDispStrand_byApatch / self.mesh.Apatch_Area_m2  *1000.  # m3/m2 *1000=mm
-    self.SurfOpnSea_tons_per_km2 = kg_OilSurfOpnSea_byApatch * 1e-3 /(self.mesh.Apatch_Area_m2 * 1e-6 ) # [tons=kg/1000] / [km2=m2/1000/1000] = tons/km2
-    self.DispOpnSea_tons_per_km2 = kg_OilDispOpnSea_byApatch * 1e-3 /(self.mesh.Apatch_Area_m2 * 1e-6 ) # [tons=kg/1000] / [km2=m2/1000/1000] = tons/km2
-    self.SurfStrand_tons_per_km2 = kg_OilSurfStrand_byApatch * 1e-3 /(self.mesh.Apatch_Area_m2 * 1e-6 ) # [tons=kg/1000] / [km2=m2/1000/1000] = tons/km2
-    self.DispStrand_tons_per_km2 = kg_OilDispStrand_byApatch * 1e-3 /(self.mesh.Apatch_Area_m2 * 1e-6 ) # [tons=kg/1000] / [km2=m2/1000/1000] = tons/km2
-    if(self.__parallel.rank<1):print('OIL Properties applied on selected patches\n')
-
   def apply_Oil_Properties_on_ijgrid(self,OilProperties_Fnames,mesh,stranded_oil_was_removed_from_surfoil=True,stranded_oil_was_removed_from_dispoil=False,weighting_coeffs=[None],time=[]):
-    self.oil_props_computed_on_patches=False
     OIL=OILTRANS(OilProperties_Fnames,stranded_oil_was_removed_from_surfoil,files_range=self.my_file_range,rank=self.__parallel.rank)
     self.mesh=mesh
     self.OILTRANS=OIL
@@ -530,188 +368,129 @@ class LTRANSdata():
       
   def oilspillhazard_to_netcdf(self,Binary_filename):
     if(self.__parallel.rank==0):
-      if(self.oil_props_computed_on_patches):
-        import scipy.io.netcdf as NC
-        ncOUT= NC.netcdf_file(Binary_filename,"w")
-        print('create netcdf file',Binary_filename)
-        self.__createDimension(ncOUT,"patch_number",  self.mesh.nARRpatch)
-        self.__createDimension(ncOUT,"timestep_number",  self.tmax )
+      import netCDF4 as nc4
+      lonmin=float(np.min(self.mesh.lon[:,:]))
+      lonmax=float(np.max(self.mesh.lon[:,:]))
+      latmin=float(np.min(self.mesh.lat[:,:]))
+      latmax=float(np.max(self.mesh.lat[:,:]))
+      ncOUT= nc4.Dataset(Binary_filename,"w",format='NETCDF4')
+      print('create netcdf file',Binary_filename)
+      ncOUT.createDimension("lat",   len(self.mesh.lon[:,0]))
+      ncOUT.createDimension("lon",   len(self.mesh.lon[0,:]))
+      ncOUT.createDimension("time",  self.tmax )
+      ncOUT.creator_name="Celia Laurent"
+      ncOUT.Institution="OGS National Institute of Oceanography and Applied Geophysics https://www.inogs.it/"
+      ncOUT.geospatial_bounds_crs="EPSG:4326"
+      ncOUT.geospatial_lon_units="degrees_east"
+      ncOUT.geospatial_lat_units="degrees_north"
+      ncOUT.geospatial_lat_max = np.max(self.mesh.lat[:,:]) ;
+      ncOUT.geospatial_lat_min = np.min(self.mesh.lat[:,:]) ;
+      ncOUT.geospatial_lat_resolution = (np.max(self.mesh.lat[:,:])-np.min(self.mesh.lat[:,:]))/(len(self.mesh.lon[:,0])-1) ;
+      ncOUT.geospatial_lat_units = "degrees_north" ;
+      ncOUT.geospatial_lon_max = np.max(self.mesh.lon[:,:]);
+      ncOUT.geospatial_lon_min = np.min(self.mesh.lon[:,:]);
+      ncOUT.geospatial_lon_resolution = (np.max(self.mesh.lon[:,:])-np.min(self.mesh.lon[:,:]))/(len(self.mesh.lon[:,0])-1) ;
+      ncOUT.geospatial_lon_units = "degrees_east" ;
+      ncOUT.geospatial_bounds = "POLYGON (("+str(lonmin)+" "+str(latmax)+", "+str(latmin)+" "+str(latmax)+", "+str(latmin)+" "+str(latmin)+", "+str(lonmin)+" "+str(latmin)+", "+str(lonmin)+" "+str(latmax)+"))" 
+      ncOUT._CoordSysBuilder = "ucar.nc2.dataset.conv.CF1Convention" ;
+      ncOUT.Conventions = "CF-1.5"
+      ncOUT.cdm_data_type = "Grid" ;
 
-        self.mesh.compute_patch_latlon()
+      #ncOUT.geospatial_bounds = "POLYGON ((14. 43., 16. 43, 16. 40, 14. 40, 14. 43))" 
+      ncvar_crs=ncOUT.createVariable("crs",   'c')
+      ncvar_crs.grid_mapping_name = "latitude_longitude" ;
+      ncvar_crs.long_name = "CRS definition" ;
+      ncvar_crs.longitude_of_prime_meridian = 0. ;
+      ncvar_crs.semi_major_axis = 6378137. ;
+      ncvar_crs.inverse_flattening = 298.257223563 ;
+      ncvar_crs.spatial_ref = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563,AUTHORITY[\"EPSG\",\"7030\"]],AUTHORITY[\"EPSG\",\"6326\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]],AXIS[\"Latitude\",NORTH],AXIS[\"Longitude\",EAST],AUTHORITY[\"EPSG\",\"4326\"]]" ;
+      ncvar_crs.GeoTransform = "0 0 0 0 0 0 " ;
 
-        ncvar=ncOUT.createVariable("lon",   'f', ('patch_number',))
-        setattr(ncvar,'units'              , 'degrees_east')
-        setattr(ncvar,'long_name'          , 'longitude of every patch')
-        setattr(ncvar,'standard_name'      , 'lon')
-        setattr(ncvar,'axis'               , 'X'        )
-        setattr(ncvar,'valid_min'          , np.min(self.mesh.arrival_patch_latlon[:,1])      )
-        setattr(ncvar,'valid_max'          , np.max(self.mesh.arrival_patch_latlon[:,1])      )
-        setattr(ncvar,'_CoordinateAxisType', 'longitude'      )
-        ncvar[:]=self.mesh.arrival_patch_latlon[:,1].astype(np.float64)
+      ncvar_lon=ncOUT.createVariable("lon",   'f', ('lat','lon',))
+      ncvar_lon.units               = 'degrees_east'
+      ncvar_lon.long_name           = 'longitude'
+      ncvar_lon.standard_name       = 'longitude'
+      ncvar_lon.axis                = 'X'        
+      ncvar_lon.valid_min           = np.min(self.mesh.lon[:,:])      
+      ncvar_lon.valid_max           = np.max(self.mesh.lon[:,:])      
+      ncvar_lon._CoordinateAxisType = 'lon'      
+      ncvar_lon.ioos_category       = 'Location'
+      ncvar_lon.actual_range        = np.array([np.min(self.mesh.lon[:,:]),np.max(self.mesh.lon[:,:])])
+      ncvar_lon[:,:]=self.mesh.lon[:,:].astype(np.float64)
 
-        ncvar=ncOUT.createVariable("lat",   'f', ('patch_number',))
-        setattr(ncvar,'units'              , 'degrees_north')
-        setattr(ncvar,'long_name'          , 'latitude of every patch')
-        setattr(ncvar,'standard_name'      , 'lat')
-        setattr(ncvar,'axis'               , 'Y'        )
-        setattr(ncvar,'valid_min'          , np.min(self.mesh.arrival_patch_latlon[:,0])      )
-        setattr(ncvar,'valid_max'          , np.max(self.mesh.arrival_patch_latlon[:,0])      )
-        setattr(ncvar,'_CoordinateAxisType', 'latitude'      )
-        ncvar[:]=self.mesh.arrival_patch_latlon[:,0].astype(np.float64)
+      ncvar_lat=ncOUT.createVariable("lat",   'f', ('lat','lon',))
+      ncvar_lat.units               = 'degrees_north'
+      ncvar_lat.long_name           = 'latitude'
+      ncvar_lat.standard_name       = 'latitude'
+      ncvar_lat.axis                = 'Y'        
+      ncvar_lat.valid_min           = np.min(self.mesh.lat[:,:])      
+      ncvar_lat.valid_max           = np.max(self.mesh.lat[:,:])      
+      ncvar_lat._CoordinateAxisType = 'lat'      
+      ncvar_lat.ioos_category       = 'Location'
+      ncvar_lat.actual_range        =np.array([np.min(self.mesh.lat[:,:]),np.max(self.mesh.lat[:,:])])
+      ncvar_lat[:,:]=self.mesh.lat[:,:].astype(np.float64)
 
-        ncvar=ncOUT.createVariable("haz_map_surf",   'f', ('timestep_number','patch_number',))
-        setattr(ncvar,'units'              , 'tons/km2')
-        setattr(ncvar,'long_name'          , 'surface oil in open sea')
-        setattr(ncvar,'valid_min'          , np.min(self.SurfOpnSea_tons_per_km2)      )
-        setattr(ncvar,'valid_max'          , np.max(self.SurfOpnSea_tons_per_km2)      )
-        ncvar[:,:]=self.SurfOpnSea_tons_per_km2[:,:].astype(np.float64)
+      ncvar_haz_map_surf=ncOUT.createVariable("haz_map_surf",   'f', ('time','lat','lon',))
+      ncvar_haz_map_surf.units               = 'tons/km2'
+      ncvar_haz_map_surf.ioos_category        = 'Oil'
+      ncvar_haz_map_surf.long_name           = 'surface oil in open sea'
+      ncvar_haz_map_surf.valid_min           = float(np.min(np.ma.masked_where(self.SurfOpnSea_tons_per_km2==0,self.SurfOpnSea_tons_per_km2)))      
+      ncvar_haz_map_surf.valid_max           = np.max(self.SurfOpnSea_tons_per_km2)      
+      #ncvar_haz_map_surf.grid_mapping = "crs"
+      ncvar_haz_map_surf.missing_value=0
+      ncvar_haz_map_surf[:,:,:]=self.SurfOpnSea_tons_per_km2[:,:,:].astype(np.float64)
 
-        ncvar=ncOUT.createVariable("haz_map_surf_beach",   'f', ('timestep_number','patch_number',))
-        setattr(ncvar,'units'              , 'tons/km2')
-        setattr(ncvar,'long_name'          , 'surface oil beached on coasts')
-        setattr(ncvar,'valid_min'          , np.min(self.SurfStrand_tons_per_km2)      )
-        setattr(ncvar,'valid_max'          , np.max(self.SurfStrand_tons_per_km2)      )
-        ncvar[:,:]=self.SurfStrand_tons_per_km2[:,:].astype(np.float64)
+      ncvar_haz_map_surf_beach=ncOUT.createVariable("haz_map_surf_beach",   'f', ('time','lat','lon',))
+      ncvar_haz_map_surf_beach.units               = 'tons/km2'
+      ncvar_haz_map_surf_beach.ioos_category        = 'Oil'
+      ncvar_haz_map_surf_beach.long_name           = 'surface oil beached on coasts'
+      ncvar_haz_map_surf_beach.valid_min           = float(np.min(np.ma.masked_where(self.SurfStrand_tons_per_km2==0,self.SurfStrand_tons_per_km2)))   
+      ncvar_haz_map_surf_beach.valid_max           = np.max(self.SurfStrand_tons_per_km2)      
+      #ncvar_haz_map_surf_beach.grid_mapping = "crs"
+      ncvar_haz_map_surf_beach.missing_value=0
+      ncvar_haz_map_surf_beach[:,:,:]=self.SurfStrand_tons_per_km2[:,:,:].astype(np.float64)
 
-        ncvar=ncOUT.createVariable("haz_map_disp",   'f', ('timestep_number','patch_number',))
-        setattr(ncvar,'units'              , 'tons/km2')
-        setattr(ncvar,'long_name'          , 'dispersed oil in open sea')
-        setattr(ncvar,'valid_min'          , np.min(self.DispOpnSea_tons_per_km2)      )
-        setattr(ncvar,'valid_max'          , np.max(self.DispOpnSea_tons_per_km2)      )
-        ncvar[:,:]=self.DispOpnSea_tons_per_km2[:,:].astype(np.float64)
+      haz_map_surf_sum=np.sum(self.SurfOpnSea_tons_per_km2,axis=0)
+      ncvar_haz_map_surf_sum=ncOUT.createVariable("haz_map_surf_sum",   'f', ('lat','lon',))
+      ncvar_haz_map_surf_sum.units               = 'tons/km2'
+      ncvar_haz_map_surf_sum.ioos_category        = 'Oil'
+      ncvar_haz_map_surf_sum.long_name           = 'cumulative sum (in time) of the surface oil in open sea'
+      ncvar_haz_map_surf_sum.valid_min           = float(np.min(np.ma.masked_where(haz_map_surf_sum==0,haz_map_surf_sum)))      
+      ncvar_haz_map_surf_sum.valid_max           = np.max(haz_map_surf_sum)      
+      #ncvar_haz_map_surf_sum.grid_mapping = "crs"
+      ncvar_haz_map_surf_sum.missing_value=0
+      ncvar_haz_map_surf_sum[:,:]=haz_map_surf_sum[:,:].astype(np.float64)
 
-        ncvar=ncOUT.createVariable("haz_map_disp_beach",   'f', ('timestep_number','patch_number',))
-        setattr(ncvar,'units'              , 'tons/km2')
-        setattr(ncvar,'long_name'          , 'dispersed oil beached on coasts')
-        setattr(ncvar,'valid_min'          , np.min(self.DispStrand_tons_per_km2)      )
-        setattr(ncvar,'valid_max'          , np.max(self.DispStrand_tons_per_km2)      )
-        ncvar[:,:]=self.DispStrand_tons_per_km2[:,:].astype(np.float64)
+      ncvar_haz_map_disp=ncOUT.createVariable("haz_map_disp",   'f', ('time','lat','lon',))
+      ncvar_haz_map_disp.units               = 'tons/km2'
+      ncvar_haz_map_disp.ioos_category        = 'Oil'
+      ncvar_haz_map_disp.long_name           = 'dispersed oil in open sea'
+      ncvar_haz_map_disp.valid_min           = float(np.min(np.ma.masked_where(self.DispOpnSea_tons_per_km2==0,self.DispOpnSea_tons_per_km2)))      
+      ncvar_haz_map_disp.valid_max           = np.max(self.DispOpnSea_tons_per_km2)      
+      #ncvar_haz_map_disp.grid_mapping = "crs"
+      ncvar_haz_map_disp.missing_value=0
+      ncvar_haz_map_disp[:,:,:]=self.DispOpnSea_tons_per_km2[:,:,:].astype(np.float64)
 
-      else:
+      ncvar_haz_map_disp_beach=ncOUT.createVariable("haz_map_disp_beach",   'f', ('time','lat','lon',))
+      ncvar_haz_map_disp_beach.units               = 'tons/km2'
+      ncvar_haz_map_disp_beach.ioos_category        = 'Oil'
+      ncvar_haz_map_disp_beach.long_name           = 'dispersed oil beached on coasts'
+      ncvar_haz_map_disp_beach.valid_min           = float(np.min(np.ma.masked_where(self.DispStrand_tons_per_km2==0,self.DispStrand_tons_per_km2)))      
+      ncvar_haz_map_disp_beach.valid_max           = np.max(self.DispStrand_tons_per_km2)      
+      #ncvar_haz_map_disp_beach.grid_mapping = "crs"
+      ncvar_haz_map_disp_beach.missing_value=0
+      ncvar_haz_map_disp_beach[:,:,:]=self.DispStrand_tons_per_km2[:,:,:].astype(np.float64)
 
-        import netCDF4 as nc4
-        lonmin=float(np.min(self.mesh.lon[:,:]))
-        lonmax=float(np.max(self.mesh.lon[:,:]))
-        latmin=float(np.min(self.mesh.lat[:,:]))
-        latmax=float(np.max(self.mesh.lat[:,:]))
-        ncOUT= nc4.Dataset(Binary_filename,"w",format='NETCDF4')
-        print('create netcdf file',Binary_filename)
-        ncOUT.createDimension("lat",   len(self.mesh.lon[:,0]))
-        ncOUT.createDimension("lon",   len(self.mesh.lon[0,:]))
-        ncOUT.createDimension("time",  self.tmax )
-        ncOUT.creator_name="Celia Laurent"
-        ncOUT.Institution="OGS National Institute of Oceanography and Applied Geophysics https://www.inogs.it/"
-        ncOUT.geospatial_bounds_crs="EPSG:4326"
-        ncOUT.geospatial_lon_units="degrees_east"
-        ncOUT.geospatial_lat_units="degrees_north"
-        ncOUT.geospatial_lat_max = np.max(self.mesh.lat[:,:]) ;
-        ncOUT.geospatial_lat_min = np.min(self.mesh.lat[:,:]) ;
-        ncOUT.geospatial_lat_resolution = (np.max(self.mesh.lat[:,:])-np.min(self.mesh.lat[:,:]))/(len(self.mesh.lon[:,0])-1) ;
-        ncOUT.geospatial_lat_units = "degrees_north" ;
-        ncOUT.geospatial_lon_max = np.max(self.mesh.lon[:,:]);
-        ncOUT.geospatial_lon_min = np.min(self.mesh.lon[:,:]);
-        ncOUT.geospatial_lon_resolution = (np.max(self.mesh.lon[:,:])-np.min(self.mesh.lon[:,:]))/(len(self.mesh.lon[:,0])-1) ;
-        ncOUT.geospatial_lon_units = "degrees_east" ;
-        ncOUT.geospatial_bounds = "POLYGON (("+str(lonmin)+" "+str(latmax)+", "+str(latmin)+" "+str(latmax)+", "+str(latmin)+" "+str(latmin)+", "+str(lonmin)+" "+str(latmin)+", "+str(lonmin)+" "+str(latmax)+"))" 
-        ncOUT._CoordSysBuilder = "ucar.nc2.dataset.conv.CF1Convention" ;
-        ncOUT.Conventions = "CF-1.5"
-        ncOUT.cdm_data_type = "Grid" ;
-
-        #ncOUT.geospatial_bounds = "POLYGON ((14. 43., 16. 43, 16. 40, 14. 40, 14. 43))" 
-       #ncvar_crs=ncOUT.createVariable("crs",   'c')
-       #ncvar_crs.grid_mapping_name = "latitude_longitude" ;
-       #ncvar_crs.long_name = "CRS definition" ;
-       #ncvar_crs.longitude_of_prime_meridian = 0. ;
-       #ncvar_crs.semi_major_axis = 6378137. ;
-       #ncvar_crs.inverse_flattening = 298.257223563 ;
-       #ncvar_crs.spatial_ref = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563,AUTHORITY[\"EPSG\",\"7030\"]],AUTHORITY[\"EPSG\",\"6326\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]],AXIS[\"Latitude\",NORTH],AXIS[\"Longitude\",EAST],AUTHORITY[\"EPSG\",\"4326\"]]" ;
-       #ncvar_crs.GeoTransform = "0 0 0 0 0 0 " ;
-
-        ncvar_lon=ncOUT.createVariable("lon",   'f', ('lat','lon',))
-        ncvar_lon.units               = 'degrees_east'
-        ncvar_lon.long_name           = 'longitude'
-        ncvar_lon.standard_name       = 'longitude'
-        ncvar_lon.axis                = 'X'        
-        ncvar_lon.valid_min           = np.min(self.mesh.lon[:,:])      
-        ncvar_lon.valid_max           = np.max(self.mesh.lon[:,:])      
-        ncvar_lon._CoordinateAxisType = 'lon'      
-        ncvar_lon.ioos_category       = 'Location'
-        ncvar_lon.actual_range        = np.array([np.min(self.mesh.lon[:,:]),np.max(self.mesh.lon[:,:])])
-        ncvar_lon[:,:]=self.mesh.lon[:,:].astype(np.float64)
-
-        ncvar_lat=ncOUT.createVariable("lat",   'f', ('lat','lon',))
-        ncvar_lat.units               = 'degrees_north'
-        ncvar_lat.long_name           = 'latitude'
-        ncvar_lat.standard_name       = 'latitude'
-        ncvar_lat.axis                = 'Y'        
-        ncvar_lat.valid_min           = np.min(self.mesh.lat[:,:])      
-        ncvar_lat.valid_max           = np.max(self.mesh.lat[:,:])      
-        ncvar_lat._CoordinateAxisType = 'lat'      
-        ncvar_lat.ioos_category       = 'Location'
-        ncvar_lat.actual_range        =np.array([np.min(self.mesh.lat[:,:]),np.max(self.mesh.lat[:,:])])
-        ncvar_lat[:,:]=self.mesh.lat[:,:].astype(np.float64)
-
-        ncvar_haz_map_surf=ncOUT.createVariable("haz_map_surf",   'f', ('time','lat','lon',))
-        ncvar_haz_map_surf.units               = 'tons/km2'
-        ncvar_haz_map_surf.ioos_category        = 'Oil'
-        ncvar_haz_map_surf.long_name           = 'surface oil in open sea'
-        ncvar_haz_map_surf.valid_min           = float(np.min(np.ma.masked_where(self.SurfOpnSea_tons_per_km2==0,self.SurfOpnSea_tons_per_km2)))      
-        ncvar_haz_map_surf.valid_max           = np.max(self.SurfOpnSea_tons_per_km2)      
-        #ncvar_haz_map_surf.grid_mapping = "crs"
-        ncvar_haz_map_surf.missing_value=0
-        ncvar_haz_map_surf[:,:,:]=self.SurfOpnSea_tons_per_km2[:,:,:].astype(np.float64)
-
-        ncvar_haz_map_surf_beach=ncOUT.createVariable("haz_map_surf_beach",   'f', ('time','lat','lon',))
-        ncvar_haz_map_surf_beach.units               = 'tons/km2'
-        ncvar_haz_map_surf_beach.ioos_category        = 'Oil'
-        ncvar_haz_map_surf_beach.long_name           = 'surface oil beached on coasts'
-        ncvar_haz_map_surf_beach.valid_min           = float(np.min(np.ma.masked_where(self.SurfStrand_tons_per_km2==0,self.SurfStrand_tons_per_km2)))   
-        ncvar_haz_map_surf_beach.valid_max           = np.max(self.SurfStrand_tons_per_km2)      
-        #ncvar_haz_map_surf_beach.grid_mapping = "crs"
-        ncvar_haz_map_surf_beach.missing_value=0
-        ncvar_haz_map_surf_beach[:,:,:]=self.SurfStrand_tons_per_km2[:,:,:].astype(np.float64)
-
-        haz_map_surf_sum=np.sum(self.SurfOpnSea_tons_per_km2,axis=0)
-        ncvar_haz_map_surf_sum=ncOUT.createVariable("haz_map_surf_sum",   'f', ('lat','lon',))
-        ncvar_haz_map_surf_sum.units               = 'tons/km2'
-        ncvar_haz_map_surf_sum.ioos_category        = 'Oil'
-        ncvar_haz_map_surf_sum.long_name           = 'cumulative sum (in time) of the surface oil in open sea'
-        ncvar_haz_map_surf_sum.valid_min           = float(np.min(np.ma.masked_where(haz_map_surf_sum==0,haz_map_surf_sum)))      
-        ncvar_haz_map_surf_sum.valid_max           = np.max(haz_map_surf_sum)      
-        #ncvar_haz_map_surf_sum.grid_mapping = "crs"
-        ncvar_haz_map_surf_sum.missing_value=0
-        ncvar_haz_map_surf_sum[:,:]=haz_map_surf_sum[:,:].astype(np.float64)
-
-        ncvar_haz_map_disp=ncOUT.createVariable("haz_map_disp",   'f', ('time','lat','lon',))
-        ncvar_haz_map_disp.units               = 'tons/km2'
-        ncvar_haz_map_disp.ioos_category        = 'Oil'
-        ncvar_haz_map_disp.long_name           = 'dispersed oil in open sea'
-        ncvar_haz_map_disp.valid_min           = float(np.min(np.ma.masked_where(self.DispOpnSea_tons_per_km2==0,self.DispOpnSea_tons_per_km2)))      
-        ncvar_haz_map_disp.valid_max           = np.max(self.DispOpnSea_tons_per_km2)      
-        #ncvar_haz_map_disp.grid_mapping = "crs"
-        ncvar_haz_map_disp.missing_value=0
-        ncvar_haz_map_disp[:,:,:]=self.DispOpnSea_tons_per_km2[:,:,:].astype(np.float64)
-
-        ncvar_haz_map_disp_beach=ncOUT.createVariable("haz_map_disp_beach",   'f', ('time','lat','lon',))
-        ncvar_haz_map_disp_beach.units               = 'tons/km2'
-        ncvar_haz_map_disp_beach.ioos_category        = 'Oil'
-        ncvar_haz_map_disp_beach.long_name           = 'dispersed oil beached on coasts'
-        ncvar_haz_map_disp_beach.valid_min           = float(np.min(np.ma.masked_where(self.DispStrand_tons_per_km2==0,self.DispStrand_tons_per_km2)))      
-        ncvar_haz_map_disp_beach.valid_max           = np.max(self.DispStrand_tons_per_km2)      
-        #ncvar_haz_map_disp_beach.grid_mapping = "crs"
-        ncvar_haz_map_disp_beach.missing_value=0
-        ncvar_haz_map_disp_beach[:,:,:]=self.DispStrand_tons_per_km2[:,:,:].astype(np.float64)
-
-        haz_map_disp_sum=np.sum(self.DispOpnSea_tons_per_km2,axis=0)
-        ncvar_haz_map_disp_sum=ncOUT.createVariable("haz_map_disp_sum",   'f', ('lat','lon',))
-        ncvar_haz_map_disp_sum.units               = 'tons/km2'
-        ncvar_haz_map_disp_sum.ioos_category        = 'Oil'
-        ncvar_haz_map_disp_sum.long_name           = 'cumulative sum (in time) of the dispersed oil in open sea'
-        ncvar_haz_map_disp_sum.valid_min           = float(np.min(np.ma.masked_where(haz_map_disp_sum==0,haz_map_disp_sum)))      
-        ncvar_haz_map_disp_sum.valid_max           = np.max(haz_map_disp_sum)      
-        #ncvar_haz_map_disp_sum.grid_mapping = "crs"
-        ncvar_haz_map_disp_sum.missing_value=0
-        ncvar_haz_map_disp_sum[:,:]=haz_map_disp_sum[:,:].astype(np.float64)
+      haz_map_disp_sum=np.sum(self.DispOpnSea_tons_per_km2,axis=0)
+      ncvar_haz_map_disp_sum=ncOUT.createVariable("haz_map_disp_sum",   'f', ('lat','lon',))
+      ncvar_haz_map_disp_sum.units               = 'tons/km2'
+      ncvar_haz_map_disp_sum.ioos_category        = 'Oil'
+      ncvar_haz_map_disp_sum.long_name           = 'cumulative sum (in time) of the dispersed oil in open sea'
+      ncvar_haz_map_disp_sum.valid_min           = float(np.min(np.ma.masked_where(haz_map_disp_sum==0,haz_map_disp_sum)))      
+      ncvar_haz_map_disp_sum.valid_max           = np.max(haz_map_disp_sum)      
+      #ncvar_haz_map_disp_sum.grid_mapping = "crs"
+      ncvar_haz_map_disp_sum.missing_value=0
+      ncvar_haz_map_disp_sum[:,:]=haz_map_disp_sum[:,:].astype(np.float64)
 
       print(self.time/86400.0) 
       ncvar_time=ncOUT.createVariable("time",   'f', ('time',))
